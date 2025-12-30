@@ -89,6 +89,49 @@ app.post('/api/user/update-profile', async (req, res) => {
     }
 });
 
+// ---------------- CREATE TEAM ENDPOINT ----------------
+app.post('/api/teams/create', async (req, res) => {
+    const { name, description, leaderId, bucketId } = req.body;
+
+    if (!name || !leaderId) {
+        return res.status(400).json({ error: "Team name and Leader ID are required" });
+    }
+
+    try {
+        // 1. Create the Team
+        const { data: team, error: teamError } = await supabase
+            .from('teams')
+            .insert({
+                name,
+                description,
+                leader_id: leaderId,
+                bucket_id: bucketId, // e.g., Hackathon ID
+                looking_for_members: true
+            })
+            .select()
+            .single();
+
+        if (teamError) throw teamError;
+
+        // 2. Automatically add the Leader as a Member
+        const { error: memberError } = await supabase
+            .from('team_members')
+            .insert({
+                team_id: team.id,
+                user_id: leaderId,
+                role: 'leader'
+            });
+
+        if (memberError) throw memberError;
+
+        res.json({ message: "Team created successfully!", teamId: team.id });
+
+    } catch (error) {
+        console.error("Create Team Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Start Server
 app.listen(port, () => {
     console.log(`Server running on http://localhost:${port}`);
