@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -8,7 +9,7 @@ const port = process.env.PORT || 3000;
 // Middleware
 app.use(cors()); // Allows everyone to connect
 app.use(express.json()); // Allows parsing JSON data
-
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 // Routes
 const matchRoutes = require('./routes/matchRoutes');
 app.use('/api/match', matchRoutes);
