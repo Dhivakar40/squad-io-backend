@@ -132,6 +132,66 @@ app.post('/api/teams/create', async (req, res) => {
     }
 });
 
+// ---------------- GET MY INVITES ----------------
+app.get('/api/user/invites/:userId', async (req, res) => {
+    const { userId } = req.params;
+
+    try {
+        // Fetch requests and "Expand" the team details (like a SQL Join)
+        const { data, error } = await supabase
+            .from('requests')
+            .select(`
+                id,
+                status,
+                created_at,
+                teams ( id, name, description )
+            `)
+            .eq('receiver_id', userId)
+            .eq('status', 'pending'); // Only show new invites
+
+        if (error) throw error;
+        res.json(data);
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ---------------- RESPOND TO INVITE (Accept/Reject) ----------------
+app.post('/api/invites/respond', async (req, res) => {
+    const { requestId, status, userId, teamId } = req.body; // status: 'accepted' or 'rejected'
+
+    try {
+        // 1. Update the Request Status
+        const { error: updateError } = await supabase
+            .from('requests')
+            .update({ status: status })
+            .eq('id', requestId);
+
+        if (updateError) throw updateError;
+
+        // 2. If Accepted, actually Add User to the Team
+        if (status === 'accepted') {
+            const { error: joinError } = await supabase
+                .from('team_members')
+                .insert({
+                    team_id: teamId,
+                    user_id: userId,
+                    role: 'member'
+                });
+
+            if (joinError) throw joinError;
+        }
+
+        res.json({ message: `Invite ${status}` });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
 // Start Server
 app.listen(port, () => {
     console.log(`Server running on http://localhost:${port}`);
