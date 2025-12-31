@@ -224,6 +224,65 @@ app.post('/api/invites/respond', async (req, res) => {
     }
 });
 
+// ---------------- GET TEAMS FEED (For Students finding teams) ----------------
+app.get('/api/teams/find', async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('teams')
+            .select(`
+                id, 
+                name, 
+                description, 
+                looking_for_members,
+                leader:users!teams_leader_id_fkey ( full_name, department )
+            `)
+            .eq('looking_for_members', true) // Only show active teams
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        res.json(data);
+
+    } catch (error) {
+        console.error("Fetch Teams Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ---------------- REQUEST TO JOIN TEAM (Student asks Leader) ----------------
+app.post('/api/teams/join-request', async (req, res) => {
+    const { userId, teamId, leaderId } = req.body;
+
+    try {
+        // Check if request exists
+        const { data: existing } = await supabase
+            .from('requests')
+            .select('*')
+            .eq('sender_id', userId)
+            .eq('team_id', teamId)
+            .eq('status', 'pending')
+            .single();
+
+        if (existing) return res.status(400).json({ error: "Request already sent" });
+
+        // Create Request (Type: 'join_request')
+        const { error } = await supabase
+            .from('requests')
+            .insert({
+                sender_id: userId,    // The Student
+                receiver_id: leaderId,// The Team Leader
+                team_id: teamId,
+                type: 'join_request',
+                status: 'pending'
+            });
+
+        if (error) throw error;
+        res.json({ message: "Request sent to team leader!" });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 if (process.env.NODE_ENV !== 'production') {
     app.listen(port, () => {
         console.log(`Server running locally on http://localhost:${port}`);
