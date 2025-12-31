@@ -9,18 +9,20 @@ const port = process.env.PORT || 3000;
 // Middleware
 app.use(cors()); // Allows everyone to connect
 app.use(express.json()); // Allows parsing JSON data
+
+// Initialize Supabase
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+
 // Routes
 const matchRoutes = require('./routes/matchRoutes');
 app.use('/api/match', matchRoutes);
 
 // Test Route
 app.get('/', (req, res) => {
-    res.send('College Connect Backend is Running! 🚀');
+    res.send('College Connect Backend is Running on Vercel! 🚀');
 });
 
 // ---------------- PROFILE UPDATE ENDPOINT ----------------
-
 app.post('/api/user/update-profile', async (req, res) => {
     const { userId, fullName, department, year, bio, github, linkedin, skills } = req.body;
 
@@ -40,40 +42,36 @@ app.post('/api/user/update-profile', async (req, res) => {
                 github_handle: github,
                 linkedin_handle: linkedin,
                 last_active_at: new Date(),
-                is_looking_for_team: true // Default to looking
+                is_looking_for_team: true
             })
             .eq('id', userId);
 
         if (userError) throw userError;
 
-        // 2. Handle Skills (The Tricky Part)
+        // 2. Handle Skills
         if (skills && skills.length > 0) {
-            // A. Remove old skills first (to avoid duplicates/mess)
             await supabase.from('user_skills').delete().eq('user_id', userId);
 
             for (const skillName of skills) {
-                // B. Check if skill exists, or create it
                 let skillId;
                 const { data: existingSkill } = await supabase
                     .from('skills')
                     .select('id')
-                    .ilike('name', skillName) // Case insensitive check
+                    .ilike('name', skillName)
                     .single();
 
                 if (existingSkill) {
                     skillId = existingSkill.id;
                 } else {
-                    // Create new skill
                     const { data: newSkill, error: skillError } = await supabase
                         .from('skills')
                         .insert({ name: skillName })
                         .select()
                         .single();
-                    if (skillError) continue; // Skip if error
+                    if (skillError) continue;
                     skillId = newSkill.id;
                 }
 
-                // C. Link User to Skill
                 await supabase.from('user_skills').insert({
                     user_id: userId,
                     skill_id: skillId
@@ -98,14 +96,13 @@ app.post('/api/teams/create', async (req, res) => {
     }
 
     try {
-        // 1. Create the Team
         const { data: team, error: teamError } = await supabase
             .from('teams')
             .insert({
                 name,
                 description,
                 leader_id: leaderId,
-                bucket_id: bucketId, // e.g., Hackathon ID
+                bucket_id: bucketId,
                 looking_for_members: true
             })
             .select()
@@ -113,7 +110,6 @@ app.post('/api/teams/create', async (req, res) => {
 
         if (teamError) throw teamError;
 
-        // 2. Automatically add the Leader as a Member
         const { error: memberError } = await supabase
             .from('team_members')
             .insert({
@@ -132,22 +128,61 @@ app.post('/api/teams/create', async (req, res) => {
     }
 });
 
+// ---------------- SEND INVITE ENDPOINT (RESTORED) ----------------
+app.post('/api/teams/invite', async (req, res) => {
+    const { senderId, receiverId, teamId } = req.body;
+
+    if (!senderId || !receiverId || !teamId) {
+        return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    try {
+        const { data: existing } = await supabase
+            .from('requests')
+            .select('*')
+            .eq('sender_id', senderId)
+            .eq('receiver_id', receiverId)
+            .eq('team_id', teamId)
+            .eq('status', 'pending')
+            .single();
+
+        if (existing) {
+            return res.status(400).json({ error: "Invite already pending" });
+        }
+
+        const { error } = await supabase
+            .from('requests')
+            .insert({
+                sender_id: senderId,
+                receiver_id: receiverId,
+                team_id: teamId,
+                type: 'invite',
+                status: 'pending'
+            });
+
+        if (error) throw error;
+
+        res.json({ message: "Invite sent successfully!" });
+
+    } catch (error) {
+        console.error("Invite Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ---------------- GET MY INVITES ----------------
 app.get('/api/user/invites/:userId', async (req, res) => {
     const { userId } = req.params;
 
     try {
-        // Fetch requests and "Expand" the team details (like a SQL Join)
         const { data, error } = await supabase
             .from('requests')
             .select(`
-                id,
-                status,
-                created_at,
+                id, status, created_at,
                 teams ( id, name, description )
             `)
             .eq('receiver_id', userId)
-            .eq('status', 'pending'); // Only show new invites
+            .eq('status', 'pending');
 
         if (error) throw error;
         res.json(data);
@@ -159,10 +194,9 @@ app.get('/api/user/invites/:userId', async (req, res) => {
 
 // ---------------- RESPOND TO INVITE (Accept/Reject) ----------------
 app.post('/api/invites/respond', async (req, res) => {
-    const { requestId, status, userId, teamId } = req.body; // status: 'accepted' or 'rejected'
+    const { requestId, status, userId, teamId } = req.body;
 
     try {
-        // 1. Update the Request Status
         const { error: updateError } = await supabase
             .from('requests')
             .update({ status: status })
@@ -170,7 +204,6 @@ app.post('/api/invites/respond', async (req, res) => {
 
         if (updateError) throw updateError;
 
-        // 2. If Accepted, actually Add User to the Team
         if (status === 'accepted') {
             const { error: joinError } = await supabase
                 .from('team_members')
@@ -191,9 +224,11 @@ app.post('/api/invites/respond', async (req, res) => {
     }
 });
 
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(port, () => {
+        console.log(`Server running locally on http://localhost:${port}`);
+    });
+}
 
-// Start Server
-app.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}`);
-    console.log(`To test locally: http://localhost:${port}/api/match/find-teammates`);
-});
+// Export the app so Vercel can run it as a serverless function
+module.exports = app;
