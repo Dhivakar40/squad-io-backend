@@ -234,6 +234,7 @@ app.get('/api/teams/find', async (req, res) => {
                 name, 
                 description, 
                 looking_for_members,
+                leader_id,  
                 leader:users!teams_leader_id_fkey ( full_name, department )
             `)
             .eq('looking_for_members', true) // Only show active teams
