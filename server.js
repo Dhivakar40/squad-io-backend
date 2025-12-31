@@ -226,19 +226,24 @@ app.post('/api/invites/respond', async (req, res) => {
 
 // ---------------- GET TEAMS FEED (For Students finding teams) ----------------
 app.get('/api/teams/find', async (req, res) => {
+    const { excludeLeader } = req.query; // Access ?excludeLeader=...
+
     try {
-        const { data, error } = await supabase
+        let query = supabase
             .from('teams')
             .select(`
-                id, 
-                name, 
-                description, 
-                looking_for_members,
-                leader_id,  
+                id, name, description, looking_for_members, leader_id,
                 leader:users!teams_leader_id_fkey ( full_name, department )
             `)
-            .eq('looking_for_members', true) // Only show active teams
+            .eq('looking_for_members', true)
             .order('created_at', { ascending: false });
+
+        // FILTER: If excludeLeader is sent, don't show teams led by this user
+        if (excludeLeader) {
+            query = query.neq('leader_id', excludeLeader);
+        }
+
+        const { data, error } = await query;
 
         if (error) throw error;
         res.json(data);
@@ -248,6 +253,54 @@ app.get('/api/teams/find', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+
+app.get('/api/user/my-teams/:userId', async (req, res) => {
+    const { userId } = req.params;
+    try {
+        const { data, error } = await supabase
+            .from('teams')
+            .select('*')
+            .eq('leader_id', userId);
+
+        if (error) throw error;
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 3. NEW: GET FULL PROFILE (For Editing)
+app.get('/api/user/profile/:userId', async (req, res) => {
+    const { userId } = req.params;
+    try {
+        // Fetch user basic info
+        const { data: user, error: userError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', userId)
+            .single();
+
+        if (userError) throw userError;
+
+        // Fetch skills
+        const { data: skills, error: skillsError } = await supabase
+            .from('user_skills')
+            .select('skills(name)')
+            .eq('user_id', userId);
+
+        if (skillsError) throw skillsError;
+
+        // Flatten skills array: [{skills: {name: "Java"}}] -> ["Java"]
+        const skillNames = skills.map(s => s.skills ? s.skills.name : null).filter(n => n);
+
+        res.json({ ...user, skills: skillNames });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 
 // ---------------- REQUEST TO JOIN TEAM (Student asks Leader) ----------------
 app.post('/api/teams/join-request', async (req, res) => {
